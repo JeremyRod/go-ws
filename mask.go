@@ -1,4 +1,4 @@
-package websocket
+package main
 
 // masking only used by the client when sending data to server.
 import (
@@ -16,11 +16,18 @@ func getMask() []byte {
 
 // mask should be a random int32 xored to the data
 // TODO: check if frame is also masked.
-func ApplyMask(data *[]byte) {
-	maskingKey := getMask()
+func ApplyMask(data *[]byte, key []byte) {
 	pos := 0
 	for i := 0; i < len(*data); i++ {
 		pos = i & 3
-		(*data)[i] = (*data)[i] ^ maskingKey[pos]
+		(*data)[i] = (*data)[i] ^ key[pos]
+	}
+}
+
+func DecodeMask(data *[]byte, key []byte) {
+	pos := 0
+	for i := 0; i < len(*data); i++ {
+		pos = i & 3
+		(*data)[i] = (*data)[i] ^ key[pos]
 	}
 }
