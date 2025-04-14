@@ -69,9 +69,26 @@ type WsConn interface {
 // read and write message will be the higher level functions
 // that read frames and reconstruct messages
 func (c *WsInstance) ReadMessage() error {
-	err := c.readFrame()
+	frame, err := c.readFrame()
 	if err != nil {
 		return err
+	}
+
+	// read the data depending on what the opcode is.
+	switch frame.header.msgType {
+	case Text:
+		// c.writeBuffer = []byte("this is the echoback")
+		// fmt.Println("send echo")
+		// c.WriteFrame()
+	case Bin:
+
+	case Cont:
+
+	case ConClose:
+
+	case Ping:
+
+	case Pong:
 	}
 	return nil
 }
@@ -146,7 +163,7 @@ func (c *WsInstance) writeFrame() error {
 	return nil
 }
 
-func (c *WsInstance) readFrame() error {
+func (c *WsInstance) readFrame() (WsFrame, error) {
 	//fmt.Printf("set deadline: %v\r\n", time.Now())
 	//c.conn.SetReadDeadline(time.Now().Add(time.Second))
 	for {
@@ -154,7 +171,7 @@ func (c *WsInstance) readFrame() error {
 		n, err := c.conn.Read(c.readBuffer)
 		if err != nil {
 			logger.Printf("Connection closed / read error: %v\r\n", err)
-			return err
+			return WsFrame{}, err
 		}
 		frame := WsFrame{
 			header: WsHeader{
@@ -189,7 +206,7 @@ func (c *WsInstance) readFrame() error {
 		// 	// This means its also a fin frame.
 
 		// }
-		opcode := OPCODE(frame.header.msgType & 0xF)
+
 		index := 0
 		switch {
 		case len(frame.header.maskingKey) == 4:
@@ -225,26 +242,9 @@ func (c *WsInstance) readFrame() error {
 			DecodeMask(&frame.data, frame.header.maskingKey)
 		}
 		if frame.header.payloadMask>>7 == 1 && !c.server {
-			fmt.Println("err: client received masked frame.")
+			logger.Println("err: client received masked frame.")
 		}
 		fmt.Printf("Rec frame: %s\r\n", string(frame.data))
-
-		// read the data depending on what the opcode is.
-		switch opcode {
-		case Text:
-			// c.writeBuffer = []byte("this is the echoback")
-			// fmt.Println("send echo")
-			// c.WriteFrame()
-		case Bin:
-
-		case Cont:
-
-		case ConClose:
-
-		case Ping:
-
-		case Pong:
-		}
-
+		return frame, nil
 	}
 }
