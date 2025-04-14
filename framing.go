@@ -36,6 +36,7 @@ type WsInstance struct {
 	readBuffer  []byte
 	writeBuffer []byte
 	server      bool
+	sendCh      chan []byte
 }
 
 type WsHeader struct {
@@ -50,7 +51,47 @@ type WsFrame struct {
 	data   []byte
 }
 
-func (c *WsInstance) WriteFrame() {
+// make WsConn be a conn interfacee
+type WsConn interface {
+	// Read reads data from the connection.
+	// Read can be made to time out and return an error after a fixed
+	// time limit; see SetDeadline and SetReadDeadline.
+	Read(b []byte) (n int, err error)
+
+	// Write writes data to the connection.
+	// Write can be made to time out and return an error after a fixed
+	// time limit; see SetDeadline and SetWriteDeadline.
+	Write(b []byte) (n int, err error)
+}
+
+// make ws an interface that can ideally act as a conn
+
+// read and write message will be the higher level functions
+// that read frames and reconstruct messages
+func (c *WsInstance) ReadMessage() error {
+	err := c.readFrame()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *WsInstance) WriteMessage(msg []byte) error {
+	c.writeBuffer = msg
+	err := c.writeFrame()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *WsInstance) SendMessage(msg []byte) error {
+	c.sendCh <- msg
+	return nil
+}
+
+// read frame and write frame will read each frame one by one
+func (c *WsInstance) writeFrame() error {
 	// write frame should probably take in a frame not just the data.
 	c.conn.SetWriteDeadline(time.Now().Add(time.Second))
 	// format the frame, determine if the client is writing the frame
@@ -89,8 +130,6 @@ func (c *WsInstance) WriteFrame() {
 	}
 
 	//mask data if from the client
-	// fmt.Println(c.writeBuffer[index:])
-	// fmt.Println(frame.data)
 	if !c.server {
 		ApplyMask(&c.writeBuffer, frame.header.maskingKey)
 	}
@@ -102,19 +141,20 @@ func (c *WsInstance) WriteFrame() {
 		// this means we cant write to the client?
 		// they have aborted the con.
 		//log.Println(err.Error()) // all this means is there was no data left.
-		return
+		return err
 	}
+	return nil
 }
 
-func (c *WsInstance) ReadFrame() {
+func (c *WsInstance) readFrame() error {
 	//fmt.Printf("set deadline: %v\r\n", time.Now())
-	c.conn.SetReadDeadline(time.Now().Add(time.Second))
+	//c.conn.SetReadDeadline(time.Now().Add(time.Second))
 	for {
 		c.readBuffer = make([]byte, 1024)
 		n, err := c.conn.Read(c.readBuffer)
 		if err != nil {
-			//log.Printf("Connection closed / read error: %v\r\n", err)
-			break
+			logger.Printf("Connection closed / read error: %v\r\n", err)
+			return err
 		}
 		frame := WsFrame{
 			header: WsHeader{
