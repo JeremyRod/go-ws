@@ -7,9 +7,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"strconv"
+	"os"
 	"strings"
-	"time"
 )
 
 func startClient(msg string) {
@@ -71,31 +70,70 @@ func startClient(msg string) {
 	}
 	expectedAccept := genHandshakeResp(secWebSocketKey)
 	if headers["Sec-Websocket-Accept"] != expectedAccept {
-		log.Fatalf("invalid Sec-WebSocket-Accept key: expected %s, got %s", expectedAccept, headers["Sec-Webocket-Accept"])
+		log.Fatalf("invalid Sec-WebSocket-Accept key: expected %s, got %s", expectedAccept, headers["Sec-Websocket-Accept"])
 	}
 	log.Println("WebSocket handshake successful! Connection upgraded.")
 	inst := WsInstance{
 		conn:   conn,
 		server: false,
+		sendCh: make(chan []byte, 5),
 	}
-	for i := 0; i < 5; i++ {
-		msg += strconv.Itoa(i)
-		inst.writeBuffer = []byte(msg)
-		inst.WriteFrame()
-		time.Sleep(time.Millisecond * 500)
-		inst.ReadFrame()
-	}
-	time.Sleep(time.Second * 5)
-	for i := 0; i < 5; i++ {
-		msg += strconv.Itoa(i)
-		inst.writeBuffer = []byte(msg)
-		inst.WriteFrame()
-		time.Sleep(time.Millisecond * 500)
-		inst.ReadFrame()
-	}
-	for {
-		inst.ReadFrame()
-	}
-	// from here we can handle new reads
 
+	// Create a done channel to signal when we should exit
+	done := make(chan bool)
+
+	go func() {
+		for {
+			err := inst.ReadMessage()
+			if err != nil {
+				logger.Println("Error reading message:", err)
+				done <- true
+				return
+			}
+		}
+	}()
+
+	go func() {
+		for {
+			select {
+			case msg, ok := <-inst.sendCh:
+				if !ok {
+					return
+				}
+				err := inst.WriteMessage(msg)
+				if err != nil {
+					logger.Println("Error writing message:", err)
+					done <- true
+					return
+				}
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	// Start reading from stdin and sending messages
+	go func() {
+		scanner := bufio.NewScanner(os.Stdin)
+		fmt.Println("Enter messages to send (press Ctrl+C to exit):")
+		for scanner.Scan() {
+			text := scanner.Text()
+			if text == "exit" {
+				done <- true
+				return
+			}
+			inst.sendCh <- []byte(text)
+		}
+		if err := scanner.Err(); err != nil {
+			logger.Println("Error reading from stdin:", err)
+			done <- true
+		}
+	}()
+
+	// Send the message
+	inst.SendMessage([]byte(msg))
+
+	// Wait for connection to close
+	<-done
+	conn.Close()
 }
