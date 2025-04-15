@@ -56,7 +56,7 @@ func handleWebsocket(w http.ResponseWriter, r *http.Request) {
 			err := inst.ReadMessage()
 			if err != nil {
 				logger.Println("Error reading message:", err)
-				done <- true
+				close(done)
 				return
 			}
 		}
@@ -70,10 +70,11 @@ func handleWebsocket(w http.ResponseWriter, r *http.Request) {
 				if !ok {
 					return
 				}
-				err := inst.WriteMessage(msg)
+				err := inst.WriteMessage(msg, Text)
 				if err != nil {
 					logger.Println("Error writing message:", err)
-					done <- true
+					close(done)
+					return
 				}
 			case <-done:
 				return
@@ -83,7 +84,6 @@ func handleWebsocket(w http.ResponseWriter, r *http.Request) {
 
 	// Wait for connection to close
 	<-done
-	inst.conn.Close()
 }
 
 func main() {

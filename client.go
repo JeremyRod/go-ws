@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 )
 
 func startClient(msg string) {
@@ -87,7 +88,7 @@ func startClient(msg string) {
 			err := inst.ReadMessage()
 			if err != nil {
 				logger.Println("Error reading message:", err)
-				done <- true
+				close(done)
 				return
 			}
 		}
@@ -100,10 +101,10 @@ func startClient(msg string) {
 				if !ok {
 					return
 				}
-				err := inst.WriteMessage(msg)
+				err := inst.WriteMessage(msg, Text)
 				if err != nil {
 					logger.Println("Error writing message:", err)
-					done <- true
+					close(done)
 					return
 				}
 			case <-done:
@@ -131,9 +132,9 @@ func startClient(msg string) {
 	}()
 
 	// Send the message
-	inst.SendMessage([]byte(msg))
-
+	<-time.After(time.Second * 10)
+	inst.WriteMessage([]byte("close reason, bye"), ConClose)
 	// Wait for connection to close
 	<-done
-	conn.Close()
+	logger.Println("Connection closed")
 }
