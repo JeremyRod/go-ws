@@ -10,7 +10,7 @@ import (
 )
 
 const websocketGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-const websocketPort = "8080"
+const websocketPort = "9002"
 
 type UpgradeConn struct {
 }
