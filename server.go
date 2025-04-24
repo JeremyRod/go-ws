@@ -56,7 +56,7 @@ func handleWebsocket(w http.ResponseWriter, r *http.Request) {
 			err := inst.ReadMessage()
 			if err != nil {
 				logger.Println("Error reading message:", err)
-				close(done)
+				done <- true
 				return
 			}
 		}
@@ -68,12 +68,13 @@ func handleWebsocket(w http.ResponseWriter, r *http.Request) {
 			select {
 			case msg, ok := <-inst.sendCh:
 				if !ok {
+					done <- true
 					return
 				}
-				err := inst.WriteMessage(msg, Text)
+				err := inst.SendFrame(msg)
 				if err != nil {
 					logger.Println("Error writing message:", err)
-					close(done)
+					done <- true
 					return
 				}
 			case <-done:
@@ -109,12 +110,12 @@ func main() {
 		// Register a regular HTTP handler for other requests
 		// http.HandleFunc("/", handleHome)
 
-		logger.Println("Starting server on :8080")
-		if err := http.ListenAndServe(":8080", nil); err != nil {
+		logger.Println("Starting server on :9001")
+		if err := http.ListenAndServe(":9001", nil); err != nil {
 			logger.Fatalf("Server failed: %v", err)
 		}
 	} else {
-		startClient(cmdArgs[1])
+		startClient()
 	}
 	CloseLogger()
 }
