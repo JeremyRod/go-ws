@@ -7,10 +7,11 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
-func startClient() {
+func startClient(endpoint string) {
 	secWebSocketKey := "x3JJHMbDL1EzLkh9GBhXDw=="
 
 	// Similar to the websocket server implementation,
@@ -29,7 +30,7 @@ func startClient() {
 		log.Fatalf("failed to connect to server: %v", err)
 	}
 	defer conn.Close()
-	url, err := url.Parse("http://localhost:9001/getCaseCount")
+	url, err := url.Parse("http://localhost:9001/" + endpoint)
 	if err != nil {
 		log.Fatalf("url parse error: %v", err)
 	}
@@ -86,7 +87,15 @@ func startClient() {
 		log.Fatalf("failed to read from server: %v", err)
 	}
 	inst.readBuffer = inst.readBuffer[:n]
-	inst.MessageFromStart() // only here to read the payload in the connection frame.
+	data, err := inst.MessageFromStart() // only here to read the payload in the connection frame.
+	if err != nil {
+		fmt.Printf("%v\r\n", err)
+	}
+	count, err := strconv.Atoi(string(data)) // this tracks the number of tests to run.
+	if err != nil {
+		fmt.Printf("%v\r\n", err)
+	}
+	fmt.Printf("count: %v\r\n", count)
 	inst.state = OPEN
 
 	// Create a done channel to signal when we should exit
@@ -121,30 +130,6 @@ func startClient() {
 			}
 		}
 	}()
-
-	// Start reading from stdin and sending messages
-	// go func() {
-	// 	scanner := bufio.NewScanner(os.Stdin)
-	// 	fmt.Println("Enter messages to send (press Ctrl+C to exit):")
-	// 	for scanner.Scan() {
-	// 		text := scanner.Text()
-	// 		if text == "exit" {
-	// 			inst.WriteMessage([]byte("close reason, bye"), ConClose)
-	// 			// done <- true
-	// 			// return
-	// 		}
-	// 		if text == "ping" {
-	// 			inst.WriteMessage([]byte("ping"), Ping)
-	// 			// done <- true
-	// 			// return
-	// 		}
-	// 		inst.WriteMessage([]byte(text), Text)
-	// 	}
-	// 	if err := scanner.Err(); err != nil {
-	// 		logger.Println("Error reading from stdin:", err)
-	// 		done <- true
-	// 	}
-	// }()
 
 	// Wait for connection to close
 	<-done

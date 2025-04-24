@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -13,11 +14,11 @@ var activeConnections = make(map[string]*WsInstance)
 func handleWebsocket(w http.ResponseWriter, r *http.Request) {
 	// The request should contain the handshake for upgrading to websocket.
 	if r.Method != http.MethodGet {
+		logger.Printf("Invalid method: %s", r.Method)
 		http.Error(w, "405 Method Not Allowed (wrong method)", http.StatusMethodNotAllowed)
 		return //&handshakeError{err: "Not Get method"}
 	}
-	if r.Header.Get("Upgrade") != "websocket" || r.Header.Get("Connection") != "Upgrade" ||
-		r.Header.Get("Sec-WebSocket-Version") != "13" {
+	if r.Header.Get("Upgrade") != "websocket" || r.Header.Get("Connection") != "Upgrade" {
 		http.Error(w, "400 Bad Request (invalid params)", http.StatusBadRequest)
 		return //&handshakeError{err: "Invalid params", val: "-1"}
 	}
@@ -27,12 +28,12 @@ func handleWebsocket(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "400 Bad Request (invalid key)", http.StatusBadRequest)
 		return //&handshakeError{err: "WebSocket-Sec-Key header missing", val: wsKey}
 	}
+
 	genKey := genHandshakeResp(wsKey)
 	w.Header().Set("Upgrade", "websocket")
 	w.Header().Set("Connection", "Upgrade")
 	w.Header().Set("Sec-WebSocket-Accept", genKey)
 	w.WriteHeader(http.StatusSwitchingProtocols)
-	//fmt.Println("responding")
 
 	// Hijack the connection to gain access to the raw TCP connection
 	conn, _, err := w.(http.Hijacker).Hijack()
@@ -98,7 +99,6 @@ func main() {
 	cmdArgs := os.Args[1:]
 
 	if cmdArgs[0] == "server" {
-
 		// Register an HTTP handler for WebSocket requests
 		http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 			if strings.ToLower(r.Header.Get("Upgrade")) == "websocket" {
@@ -110,12 +110,14 @@ func main() {
 		// Register a regular HTTP handler for other requests
 		// http.HandleFunc("/", handleHome)
 
-		logger.Println("Starting server on :9001")
-		if err := http.ListenAndServe(":9001", nil); err != nil {
+		logger.Println("Starting server on :9002")
+		if err := http.ListenAndServe(":9002", nil); err != nil {
 			logger.Fatalf("Server failed: %v", err)
 		}
 	} else {
-		startClient()
+		for i := range 517 {
+			startClient("runCase?case=" + strconv.Itoa(i))
+		}
 	}
 	CloseLogger()
 }
