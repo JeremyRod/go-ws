@@ -18,7 +18,7 @@ func handleWebsocket(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "405 Method Not Allowed (wrong method)", http.StatusMethodNotAllowed)
 		return //&handshakeError{err: "Not Get method"}
 	}
-	if r.Header.Get("Upgrade") != "websocket" || r.Header.Get("Connection") != "Upgrade" {
+	if r.Header.Get("Upgrade") != "WebSocket" || r.Header.Get("Connection") != "Upgrade" {
 		http.Error(w, "400 Bad Request (invalid params)", http.StatusBadRequest)
 		return //&handshakeError{err: "Invalid params", val: "-1"}
 	}
@@ -30,7 +30,7 @@ func handleWebsocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	genKey := genHandshakeResp(wsKey)
-	w.Header().Set("Upgrade", "websocket")
+	w.Header().Set("Upgrade", "WebSocket")
 	w.Header().Set("Connection", "Upgrade")
 	w.Header().Set("Sec-WebSocket-Accept", genKey)
 	w.WriteHeader(http.StatusSwitchingProtocols)
