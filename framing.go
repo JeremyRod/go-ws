@@ -86,35 +86,35 @@ type WsConn interface {
 // read and write message will be the higher level functions
 // that read frames and reconstruct messages
 func (c *WsInstance) ReadMessage() error {
-	frame, err := c.readFrame()
+	_, err := c.readFrame()
 	if err != nil {
 		return err
 	}
-	logger.Printf("Rec frame MsgType: %v\r\n", frame.header.msgType&0x7F)
+	// logger.Printf("Rec frame MsgType: %v\r\n", frame.header.msgType&0x7F)
 
-	// read the data depending on what the opcode is.
-	switch frame.header.msgType & 0x7F {
-	case Text:
+	// // read the data depending on what the opcode is.
+	// switch frame.header.msgType & 0x7F {
+	// case Text:
+	// 	c.WriteMessage([]byte(frame.data), Text)
+	// case Bin:
+	// 	c.WriteMessage([]byte(frame.data), Bin)
+	// case Cont:
 
-	case Bin:
+	// case ConClose:
+	// 	// ack and send the close
+	// 	if c.state == CLOSING {
+	// 		c.conn.Close()
+	// 		c.state = CLOSED
+	// 		return errors.New("connection closed")
+	// 	}
+	// 	c.WriteMessage([]byte(frame.data), ConClose)
+	// 	return errors.New("connection closing")
 
-	case Cont:
-
-	case ConClose:
-		// ack and send the close
-		if c.state == CLOSING {
-			c.conn.Close()
-			c.state = CLOSED
-			return errors.New("connection closed")
-		}
-		c.WriteMessage([]byte(frame.data), ConClose)
-		return errors.New("connection closing")
-
-	case Ping:
-		c.WriteMessage([]byte(frame.data), Ping)
-	case Pong:
-		c.WriteMessage([]byte(frame.data), Pong)
-	}
+	// case Ping:
+	// 	c.WriteMessage([]byte(frame.data), Ping)
+	// case Pong:
+	// 	c.WriteMessage([]byte(frame.data), Pong)
+	// }
 	return nil
 }
 
@@ -220,10 +220,12 @@ func (c *WsInstance) readFromStart() ([]byte, error) {
 			// we have an extended payload, determine which one.
 			if payloadSize == 126 {
 				// next 2 bytes are the extended size.
-				frame.header.extPayload = uint64(binary.LittleEndian.Uint16(c.readBuffer[2:4]))
+				frame.header.extPayload = uint64(binary.BigEndian.Uint16(c.readBuffer[2:4]))
+				payloadSize = int(frame.header.extPayload)
 			} else {
 				// next 8 bytes are extended size.
-				frame.header.extPayload = uint64(binary.LittleEndian.Uint64(frame.data[2:10]))
+				frame.header.extPayload = uint64(binary.BigEndian.Uint64(c.readBuffer[2:10]))
+				payloadSize = int(frame.header.extPayload)
 			}
 		}
 		if frame.header.payloadMask>>7 == 1 {
@@ -309,79 +311,98 @@ func (c *WsInstance) readFromStart() ([]byte, error) {
 func (c *WsInstance) readFrame() (WsFrame, error) {
 	//fmt.Printf("set deadline: %v\r\n", time.Now())
 	//c.conn.SetReadDeadline(time.Now().Add(time.Second))
-	c.readBuffer = make([]byte, 1024)
-	_, err := c.conn.Read(c.readBuffer)
+	readBuffer := make([]byte, 1024)
+	frame := WsFrame{}
+	n, err := c.conn.Read(readBuffer)
+	readBuffer = readBuffer[:n]
 	if err != nil {
 		logger.Printf("Connection closed / read error: %v\r\n", err)
 		return WsFrame{}, err
 	}
-	frame := WsFrame{
-		header: WsHeader{
-			msgType:     OPCODE(c.readBuffer[0]),
-			payloadMask: c.readBuffer[1],
-			maskingKey:  []byte{},
-		},
-		data: []byte{},
-	}
-	payloadSize := frame.header.payloadMask << 1
-	if payloadSize > 125 {
-		// we have an extended payload, determine which one.
-		if payloadSize == 126 {
-			// next 2 bytes are the extended size.
-			frame.header.extPayload = uint64(binary.LittleEndian.Uint16(c.readBuffer[2:4]))
-		} else {
-			// next 8 bytes are extended size.
-			frame.header.extPayload = uint64(binary.LittleEndian.Uint64(frame.data[2:10]))
+	for {
+		if len(readBuffer) == 0 {
+			break
 		}
-	}
-	if frame.header.payloadMask>>7 == 1 {
-		//frame is masked from client to server
-		if payloadSize < 126 {
-			frame.header.maskingKey = []byte(c.readBuffer[2:6])
-		} else if payloadSize == 126 {
-			frame.header.maskingKey = []byte(c.readBuffer[4:6])
-		} else { // must equal 127
-			frame.header.maskingKey = []byte(c.readBuffer[10:14])
+		frame = WsFrame{
+			header: WsHeader{
+				msgType:     OPCODE(readBuffer[0]),
+				payloadMask: readBuffer[1],
+				maskingKey:  []byte{},
+			},
+			data: []byte{},
 		}
-	}
-	index := 0
-	switch {
-	case len(frame.header.maskingKey) == 4:
-		switch {
-		case payloadSize == 126:
-			index = MaskKey16Ext
-		case payloadSize == 127:
-			index = MaskKey64Ext
-		case payloadSize < 125:
-			index = MaskKeyNoExt
-		default:
-			//len is wrong
-			index = 0
+		var payloadSize int = int(frame.header.payloadMask & 0x7F)
+		if payloadSize > 125 {
+			// we have an extended payload, determine which one.
+			if payloadSize == 126 {
+				// next 2 bytes are the extended size.
+				frame.header.extPayload = uint64(binary.BigEndian.Uint16(readBuffer[2:4]))
+				payloadSize = int(frame.header.extPayload)
+			} else {
+				// next 8 bytes are extended size.
+				frame.header.extPayload = uint64(binary.BigEndian.Uint64(readBuffer[2:10]))
+				payloadSize = int(frame.header.extPayload)
+			}
 		}
-	case len(frame.header.maskingKey) == 0:
-		switch {
-		case payloadSize == 126:
-			index = NoMaskKey16Ext
-		case payloadSize == 127:
-			index = NoMaskKey64Ext
-		case payloadSize < 125:
-			index = NoMaskKeyNoExt
-		default:
-			//len is wrong
-			index = 0
-		}
-	default:
-		//len is wrong
-		index = 0
-	}
-	frame.data = c.readBuffer[index:payloadSize]
-	if frame.header.payloadMask>>7 == 1 && c.server {
-		DecodeMask(&frame.data, frame.header.maskingKey)
-	}
-	if frame.header.payloadMask>>7 == 1 && !c.server {
-		logger.Println("err: client received masked frame.")
-	}
-	fmt.Printf("Rec frame: %s\r\n", string(frame.data))
-	return frame, nil
 
+		// Calculate the base index for masking key and payload
+		baseIndex := 2 // Start after the first two bytes (opcode and payload mask)
+		if payloadSize > 125 {
+			if payloadSize <= 65535 {
+				baseIndex += 2 // Add 2 bytes for 16-bit length
+			} else {
+				baseIndex += 8 // Add 8 bytes for 64-bit length
+			}
+		}
+
+		if frame.header.payloadMask>>7 == 1 {
+			//frame is masked from client to server
+			frame.header.maskingKey = readBuffer[baseIndex : baseIndex+4]
+			baseIndex += 4 // Move past the masking key
+		}
+
+		// Ensure we have enough data in the buffer
+		if len(readBuffer) < baseIndex+payloadSize {
+			return WsFrame{}, errors.New("buffer too small for payload")
+		}
+
+		frame.data = readBuffer[baseIndex : baseIndex+payloadSize]
+		if frame.header.payloadMask>>7 == 1 && c.server {
+			DecodeMask(&frame.data, frame.header.maskingKey)
+		}
+		if frame.header.payloadMask>>7 == 1 && !c.server {
+			logger.Println("err: client received masked frame.")
+		}
+		readBuffer = readBuffer[baseIndex+payloadSize:]
+		logger.Printf("Rec frame MsgType: %v\r\n", frame.header.msgType&0x7F)
+		// read the data depending on what the opcode is.
+		switch frame.header.msgType & 0x7F {
+		case Text:
+			c.WriteMessage(frame.data, Text)
+			logger.Printf("Rec Text frame: %v\r\n", []byte(frame.data))
+			//msgs = append(msgs, frame.data...)
+		case Bin:
+			c.WriteMessage(frame.data, Bin)
+			logger.Printf("Rec Bin frame: %v\r\n", []byte(frame.data))
+			//msgs = append(msgs, frame.data...)
+		case Cont:
+			// this will need to be aware of the previous frame metadata.
+			//msgs = append(msgs, frame.data...)
+		case ConClose:
+			// send the close, then close the connection.
+			c.WriteMessage([]byte(frame.data), ConClose)
+			if c.state == CLOSING {
+				c.conn.Close()
+				c.state = CLOSED
+			}
+			c.state = CLOSING
+			//return msgs, errors.New("connection closed")
+		case Ping:
+			c.WriteMessage([]byte(frame.data), Ping)
+		case Pong:
+			c.WriteMessage([]byte(frame.data), Pong)
+		}
+	}
+	//fmt.Printf("Rec frame: %s\r\n", string(frame.data))
+	return frame, nil
 }
